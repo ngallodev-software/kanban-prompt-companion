@@ -17,18 +17,19 @@ def test_list_projects_and_add_project() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         calls[request.url.path] += 1
         if request.url.path.endswith("/projects.list"):
-            return _json_response({"result": {"data": {"json": {"projects": [{"id": "p1", "name": "Alpha"}]}}}})
+            assert request.headers["x-kanban-passcode"] == "pass-1"
+            return _json_response({"result": {"data": {"json": {"currentProjectId": "p1", "projects": [{"id": "p1", "name": "Alpha", "path": "/vault/alpha"}]}}}})
         if request.url.path.endswith("/projects.add"):
             assert request.content
             return _json_response({"result": {"data": {"json": {"id": "p2"}}}})
         raise AssertionError(request.url.path)
 
     client = KanbanClient(
-        KanbanClientConfig(base_url="http://kanban.local", workspace_id="ws-1"),
+        KanbanClientConfig(base_url="http://kanban.local", workspace_id="ws-1", passcode="pass-1"),
         transport=httpx.MockTransport(handler),
     )
 
-    assert client.list_projects() == [{"id": "p1", "name": "Alpha"}]
+    assert client.list_projects() == [{"id": "p1", "name": "Alpha", "path": "/vault/alpha"}]
     assert client.add_project("/vault/kanban") == {"id": "p2"}
     assert calls["/api/trpc/projects.list"] == 1
     assert calls["/api/trpc/projects.add"] == 1

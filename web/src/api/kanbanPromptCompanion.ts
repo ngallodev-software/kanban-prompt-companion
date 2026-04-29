@@ -34,6 +34,13 @@ export function getPackageDetail(packageId: string) {
   return fetchJson<ReviewPackageDetail>(`/api/packages/${packageId}`);
 }
 
+export function updatePackageWorkspace(packageId: string, workspaceId: string | null) {
+  return fetchJson<{ package: ReviewPackageDetail }>(`/api/packages/${packageId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ workspace_id: workspaceId }),
+  });
+}
+
 export function patchPromptStep(
   stepId: string,
   payload: {

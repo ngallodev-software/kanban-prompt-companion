@@ -391,6 +391,27 @@ def mark_prompt_package_status(
     return get_prompt_package(connection, package_id)
 
 
+def update_prompt_package_workspace(
+    connection: sqlite3.Connection,
+    package_id: str,
+    workspace_id: str | None,
+) -> PromptPackageRecord:
+    now = _utc_now()
+    normalized_workspace_id = str(workspace_id).strip() if workspace_id is not None else None
+    if normalized_workspace_id == "":
+        normalized_workspace_id = None
+    connection.execute(
+        """
+        UPDATE prompt_packages
+        SET kanban_workspace_id = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (normalized_workspace_id, now, package_id),
+    )
+    connection.commit()
+    return get_prompt_package(connection, package_id)
+
+
 def mark_prompt_steps_status(
     connection: sqlite3.Connection,
     package_id: str,

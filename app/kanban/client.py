@@ -37,9 +37,19 @@ class KanbanClient:
         self._builtin_create_procedure: str | None = None
 
     def list_projects(self) -> list[dict[str, Any]]:
-        payload = self._request("projects.list")
-        projects = payload.get("projects", []) if isinstance(payload, dict) else []
-        return list(projects)
+        try:
+            payload = self._discover_workspaces()
+        except KanbanClientError:
+            payload = self._request("projects.list")
+
+        if isinstance(payload, dict):
+            for key in ("workspaces", "projects"):
+                items = payload.get(key)
+                if isinstance(items, list):
+                    return [item for item in items if isinstance(item, dict)]
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+        return []
 
     def add_project(self, path: str) -> dict[str, Any]:
         payload = self._request("projects.add", {"path": path})
@@ -207,6 +217,26 @@ class KanbanClient:
         data = self._unwrap(response)
         if response.status_code >= 400:
             raise KanbanClientError(self._format_error(procedure, response.status_code, data))
+        return data
+
+    def _discover_workspaces(self) -> Any:
+        headers = {}
+        if self.config.passcode:
+            headers["x-kanban-passcode"] = self.config.passcode
+
+        try:
+            with httpx.Client(
+                base_url=self.config.base_url.rstrip("/"),
+                timeout=self.config.timeout_seconds,
+                transport=self._transport,
+            ) as client:
+                response = client.get("/api/trpc/projects.list", headers=headers)
+        except httpx.HTTPError as exc:
+            raise KanbanTransportError(str(exc)) from exc
+
+        data = self._unwrap(response)
+        if response.status_code >= 400:
+            raise KanbanClientError(self._format_error("projects.list", response.status_code, data))
         return data
 
     def _unwrap(self, response: httpx.Response) -> Any:

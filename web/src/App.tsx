@@ -14,7 +14,21 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { approvePackage, deliverKanbanPackage, getDelivery, getIntakeNotes, getPackageDetail, getReviewQueue, listDeliveries, loadLocalSettings, patchPromptStep, previewKanbanPackage, retryDelivery } from "@/api/kanbanPromptCompanion";
+import {
+  approvePackage,
+  deliverKanbanPackage,
+  getDelivery,
+  getIntakeNotes,
+  getPackageDetail,
+  getReviewQueue,
+  listDeliveries,
+  listKanbanWorkspaces,
+  loadLocalSettings,
+  patchPromptStep,
+  previewKanbanPackage,
+  retryDelivery,
+  updatePackageWorkspace,
+} from "@/api/kanbanPromptCompanion";
 import type { ScreenPath } from "@/api/types";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -28,6 +42,7 @@ import { cn } from "@/lib/cn";
 
 type LocationState = { pathname: ScreenPath; search: string };
 type RouteSelection = { packageId: string | null; deliveryId: string | null };
+type WorkspaceOption = { id: string | null; name: string; path: string | null };
 type ReviewDraft = {
   title: string;
   prompt_markdown: string;
@@ -128,6 +143,13 @@ function jsonStringify(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+function workspaceLabel(workspace: WorkspaceOption | undefined): string {
+  if (!workspace) {
+    return "Configured workspace";
+  }
+  return workspace.path ? `${workspace.name} · ${workspace.path}` : workspace.name;
+}
+
 function screenTitle(pathname: ScreenPath): string {
   return routes.find((route) => route.path === pathname)?.label ?? "Intake";
 }
@@ -226,7 +248,9 @@ export default function App() {
               <CardDescription>{routeDescription}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {pathname === "/intake" && <IntakeScreen navigate={navigate} selection={selection} />}
+              {pathname === "/intake" && (
+                <IntakeScreen navigate={navigate} selection={selection} queryClient={queryClient} />
+              )}
               {pathname === "/review" && (
                 <ReviewScreen
                   navigate={navigate}
@@ -269,7 +293,7 @@ export default function App() {
               </CardContent>
             </Card>
 
-            <Card>
+            {/* <Card>
               <CardHeader>
                 <CardTitle>Scope</CardTitle>
                 <CardDescription>Nothing beyond the requested screens and API surface.</CardDescription>
@@ -279,7 +303,7 @@ export default function App() {
                 <p>No dashboards, charts, routing registry, or role controls.</p>
                 <p>No direct Kanban state writes.</p>
               </CardContent>
-            </Card>
+            </Card> */}
           </div>
         </section>
       </div>
@@ -290,12 +314,17 @@ export default function App() {
 function IntakeScreen({
   navigate,
   selection,
+  queryClient,
 }: {
   navigate: (pathname: ScreenPath, search?: Record<string, string | null | undefined>) => void;
   selection: RouteSelection;
+  queryClient: ReturnType<typeof useQueryClient>;
 }) {
   const intakeQuery = useQuery({ queryKey: ["intake"], queryFn: () => getIntakeNotes(), staleTime: 5_000 });
   const [statusFilter, setStatusFilter] = useState("all");
+  const refreshIntake = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["intake"] });
+  };
 
   const notes = intakeQuery.data?.items ?? [];
   const statuses = useMemo(() => ["all", ...new Set(notes.map((note) => note.status))], [notes]);
@@ -325,7 +354,7 @@ function IntakeScreen({
               </option>
             ))}
           </select>
-          <Button variant="secondary" size="sm" onClick={() => intakeQuery.refetch()} disabled={intakeQuery.isFetching}>
+          <Button variant="secondary" size="sm" onClick={refreshIntake} disabled={intakeQuery.isFetching}>
             <RefreshCw size={14} />
             Refresh
           </Button>
@@ -440,8 +469,10 @@ function ReviewScreen({
   queryClient: ReturnType<typeof useQueryClient>;
 }) {
   const reviewQuery = useQuery({ queryKey: ["review"], queryFn: getReviewQueue, staleTime: 5_000 });
+  const workspacesQuery = useQuery({ queryKey: ["kanban-workspaces"], queryFn: listKanbanWorkspaces, staleTime: 30_000 });
   const reviewPackages = reviewQuery.data?.items ?? [];
   const [selectedPackageId, setSelectedPackageId] = useState<string | null>(packageSelection ?? null);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const packageQuery = useQuery({
     queryKey: ["package", selectedPackageId],
     queryFn: () => getPackageDetail(selectedPackageId ?? ""),
@@ -457,7 +488,11 @@ function ReviewScreen({
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!selectedPackageId && reviewPackages[0]?.id) {
+    if (reviewPackages.length === 0) {
+      return;
+    }
+    const selectedStillExists = selectedPackageId ? reviewPackages.some((item) => item.id === selectedPackageId) : false;
+    if (!selectedPackageId || !selectedStillExists) {
       setSelectedPackageId(reviewPackages[0].id);
     }
   }, [reviewPackages, selectedPackageId]);
@@ -467,6 +502,10 @@ function ReviewScreen({
       setSelectedPackageId(packageSelection);
     }
   }, [packageSelection, selectedPackageId]);
+
+  useEffect(() => {
+    setSelectedWorkspaceId(packageDetail?.workspace_id ?? null);
+  }, [packageDetail?.id, packageDetail?.workspace_id]);
 
   useEffect(() => {
     const firstStep = packageDetail?.steps[0] ?? null;
@@ -538,6 +577,42 @@ function ReviewScreen({
     },
   });
 
+  const updateWorkspace = useMutation({
+    mutationFn: ({ packageId, workspaceId }: { packageId: string; workspaceId: string | null }) =>
+      updatePackageWorkspace(packageId, workspaceId),
+    onSuccess: async (response) => {
+      const nextWorkspaceId = response.package.workspace_id ?? null;
+      setSelectedWorkspaceId(nextWorkspaceId);
+      setActionMessage(nextWorkspaceId ? "Workspace updated." : "Workspace cleared.");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["review"] }),
+        queryClient.invalidateQueries({ queryKey: ["package", selectedPackageId] }),
+        queryClient.invalidateQueries({ queryKey: ["intake"] }),
+      ]);
+    },
+    onError: () => {
+      setSelectedWorkspaceId(packageDetail?.workspace_id ?? null);
+      setActionMessage("Unable to update workspace.");
+    },
+  });
+
+  const refreshReview = async () => {
+    await Promise.all([reviewQuery.refetch(), packageQuery.refetch()]);
+    setActionMessage("Review queue refreshed.");
+  };
+
+  const workspaceOptions = [
+    ...(workspacesQuery.data?.items ?? []).map((workspace) => ({
+      id: workspace.id,
+      name: workspace.name,
+      path: workspace.path,
+    })),
+    ...(selectedWorkspaceId &&
+    !(workspacesQuery.data?.items ?? []).some((workspace) => workspace.id === selectedWorkspaceId)
+      ? [{ id: selectedWorkspaceId, name: selectedWorkspaceId, path: null }]
+      : []),
+  ];
+
   const deliver = useMutation({
     mutationFn: () => deliverKanbanPackage(selectedPackageId ?? ""),
     onSuccess: async (response) => {
@@ -574,7 +649,7 @@ function ReviewScreen({
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-2">
           <div className="text-xs uppercase tracking-wide text-text-tertiary">Review queue</div>
-          <Button variant="secondary" size="sm" onClick={() => reviewQuery.refetch()} disabled={reviewQuery.isFetching}>
+          <Button variant="secondary" size="sm" onClick={refreshReview} disabled={reviewQuery.isFetching}>
             <RefreshCw size={14} />
             Refresh
           </Button>
@@ -615,24 +690,63 @@ function ReviewScreen({
               <CardDescription>{packageDetail.source_note_path}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-2 text-sm text-text-secondary sm:grid-cols-2">
-                <div className="flex justify-between gap-4">
-                  <span>Status</span>
-                  <StatusBadge label={packageDetail.status} tone={statusToneMap[packageDetail.status] ?? "blue"} />
+              {workspacesQuery.isError ? (
+                <div className="rounded-md border border-status-red/40 bg-status-red/10 px-3 py-2 text-xs text-status-red">
+                  Kanban instance unavailable:{" "}
+                  {workspacesQuery.error instanceof Error ? workspacesQuery.error.message : "Unable to load workspaces."}
                 </div>
-                <div className="flex justify-between gap-4">
-                  <span>Workspace</span>
-                  <span className="text-text-primary">{packageDetail.workspace_id ?? "unset"}</span>
+              ) : null}
+
+                <div className="grid gap-2 text-sm text-text-secondary sm:grid-cols-2">
+                  <div className="flex justify-between gap-4">
+                    <span>Status</span>
+                    <StatusBadge label={packageDetail.status} tone={statusToneMap[packageDetail.status] ?? "blue"} />
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span>Project</span>
+                    <span className="text-text-primary">{packageDetail.project_key ?? "kanban"}</span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span>Version</span>
+                    <span className="text-text-primary">{packageDetail.version}</span>
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <div className="flex items-center justify-between gap-4">
+                      <span>Kanban workspace</span>
+                      <StatusBadge
+                        label={workspacesQuery.isError ? "offline" : workspacesQuery.isLoading ? "loading" : "ready"}
+                        tone={workspacesQuery.isError ? "red" : workspacesQuery.isLoading ? "orange" : "green"}
+                      />
+                    </div>
+                    {workspacesQuery.isLoading ? (
+                      <p className="text-xs text-text-tertiary">Discovering workspaces from the running Kanban instance.</p>
+                    ) : (
+                      <select
+                        aria-label="Kanban workspace"
+                        className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm text-text-primary"
+                        disabled={workspacesQuery.isError || updateWorkspace.isPending}
+                        value={selectedWorkspaceId ?? ""}
+                        onChange={(event) => {
+                          const nextWorkspaceId = event.target.value || null;
+                          setSelectedWorkspaceId(nextWorkspaceId);
+                          if (selectedPackageId) {
+                            updateWorkspace.mutate({ packageId: selectedPackageId, workspaceId: nextWorkspaceId });
+                          }
+                        }}
+                      >
+                        <option value="">Choose a Kanban workspace</option>
+                        {workspaceOptions.map((workspace) => (
+                          <option key={workspace.id ?? workspace.name} value={workspace.id ?? ""}>
+                            {workspaceLabel(workspace)}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <p className="text-xs text-text-tertiary">
+                      This choice is saved on the package and used for preview and delivery.
+                    </p>
+                  </div>
                 </div>
-                <div className="flex justify-between gap-4">
-                  <span>Project</span>
-                  <span className="text-text-primary">{packageDetail.project_key ?? "kanban"}</span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span>Version</span>
-                  <span className="text-text-primary">{packageDetail.version}</span>
-                </div>
-              </div>
 
               {packageDetail.error_message ? (
                 <div className="rounded-md border border-status-red/40 bg-status-red/10 px-3 py-2 text-xs text-status-red">
@@ -673,16 +787,12 @@ function ReviewScreen({
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Button
-                  disabled={approve.isPending || !selectedPackageId}
-                  onClick={() => approve.mutate()}
-                  variant="secondary"
-                >
+                <Button disabled={approve.isPending || !selectedPackageId} onClick={() => approve.mutate()} variant="secondary">
                   <Package size={14} />
                   Approve package
                 </Button>
                 <Button
-                  disabled={preview.isPending || !selectedPackageId}
+                  disabled={preview.isPending || !selectedPackageId || !selectedWorkspaceId}
                   onClick={() => preview.mutate()}
                   variant="outline"
                 >
@@ -690,7 +800,7 @@ function ReviewScreen({
                   Preview Kanban payload
                 </Button>
                 <Button
-                  disabled={deliver.isPending || !selectedPackageId}
+                  disabled={deliver.isPending || !selectedPackageId || !selectedWorkspaceId}
                   onClick={() => deliver.mutate()}
                 >
                   <Send size={14} />
@@ -805,7 +915,7 @@ function ReviewScreen({
         <Card>
           <CardHeader>
             <CardTitle>Kanban payload preview</CardTitle>
-            <CardDescription>Preview and delivery results stay compact and inline.</CardDescription>
+            <CardDescription>The selected workspace is embedded in preview and delivery.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <pre className="max-h-72 overflow-auto rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-text-primary">
@@ -852,7 +962,11 @@ function DeliveriesScreen({
   const selectedDelivery = deliveryDetailQuery.data?.delivery ?? deliveries.find((item) => item.id === selectedDeliveryId) ?? null;
 
   useEffect(() => {
-    if (!selectedDeliveryId && deliveries[0]?.id) {
+    if (deliveries.length === 0) {
+      return;
+    }
+    const selectedStillExists = selectedDeliveryId ? deliveries.some((item) => item.id === selectedDeliveryId) : false;
+    if (!selectedDeliveryId || !selectedStillExists) {
       setSelectedDeliveryId(deliveries[0].id);
     }
   }, [deliveries, selectedDeliveryId]);
@@ -869,12 +983,16 @@ function DeliveriesScreen({
     }
   }, [navigate, selectedDeliveryId]);
 
+  const refreshDeliveries = async () => {
+    await Promise.all([deliveriesQuery.refetch(), deliveryDetailQuery.refetch()]);
+  };
+
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-2">
           <div className="text-xs uppercase tracking-wide text-text-tertiary">Deliveries</div>
-          <Button variant="secondary" size="sm" onClick={() => deliveriesQuery.refetch()} disabled={deliveriesQuery.isFetching}>
+          <Button variant="secondary" size="sm" onClick={refreshDeliveries} disabled={deliveriesQuery.isFetching}>
             <RefreshCw size={14} />
             Refresh
           </Button>
@@ -996,14 +1114,14 @@ function SettingsScreen() {
       </Card>
 
       <Card>
-        <CardHeader>
+        {/* <CardHeader>
           <CardTitle>Notes</CardTitle>
           <CardDescription>No runtime secrets panel, no admin shell, just the few values this UI can show.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-text-secondary">
           <p>Backend config comes from environment variables.</p>
           <p>There is no in-app save action for these fields.</p>
-        </CardContent>
+        </CardContent> */}
       </Card>
     </div>
   );

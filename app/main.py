@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict
 
 from app.config import AppConfig, load_config
 from app.contracts import HealthResponse, PromptPackageV1
+from app.ingest import NoteWatcher
+from app.ingest.runtime import NoteIngestRuntime
 from app.kanban.client import KanbanClient, KanbanClientConfig, KanbanClientError, KanbanTransportError
 from app.kanban.manifest import build_kanban_manifest
 from app.storage import (
@@ -28,6 +30,7 @@ from app.storage import (
     mark_prompt_package_status,
     mark_prompt_steps_status,
     update_delivery_request,
+    update_prompt_package_workspace,
     update_prompt_step,
 )
 from app.storage.db import connect_database
@@ -52,6 +55,12 @@ class ApproveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     deliver: bool = False
+
+
+class PackageWorkspaceUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str | None = None
 
 
 def create_app(
@@ -79,9 +88,23 @@ def create_app(
                     workspace_id=_configured_workspace_id(app),
                 )
             )
+        if getattr(app.state, "ingest_runtime", None) is None:
+            app.state.ingest_runtime = NoteIngestRuntime(
+                connection=_db(app),
+                template_dir=app.state.config.template_dir,
+                watcher=NoteWatcher(
+                    vault_path=app.state.config.vault_path,
+                    watch_folder=app.state.config.watch_folder,
+                ),
+            )
+            app.state.ingest_runtime.start()
 
     @app.on_event("shutdown")
     def shutdown() -> None:
+        runtime = getattr(app.state, "ingest_runtime", None)
+        if runtime is not None:
+            runtime.stop()
+            app.state.ingest_runtime = None
         connection = getattr(app.state, "db_connection", None)
         if connection is not None and getattr(app.state, "owns_db_connection", False):
             connection.close()
@@ -144,6 +167,15 @@ def create_app(
         if body and body.deliver:
             response["delivery"] = _deliver_package(connection, approved, app)
         return response
+
+    @app.patch("/api/packages/{package_id}")
+    def update_package(package_id: str, body: PackageWorkspaceUpdateRequest) -> dict[str, Any]:
+        connection = _db(app)
+        try:
+            package = update_prompt_package_workspace(connection, package_id, body.workspace_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="package not found") from exc
+        return {"package": _serialize_package_detail(connection, package)}
 
     @app.get("/api/kanban/workspaces")
     def kanban_workspaces() -> dict[str, Any]:
@@ -390,13 +422,13 @@ def _package_link(package) -> dict[str, Any] | None:
 
 
 def _serialize_package_summary(connection: sqlite3.Connection, package) -> dict[str, Any]:
-    note = get_note(connection, package.note_id)
+    note = _maybe_get_note(connection, package.note_id)
     return {
         "id": package.id,
         "note_id": package.note_id,
-        "note_title": note.title,
-        "source_note_path": note.absolute_path,
-        "source_note_title": note.title,
+        "note_title": note.title if note else f"Missing note {package.note_id}",
+        "source_note_path": note.absolute_path if note else package.note_id,
+        "source_note_title": note.title if note else f"Missing note {package.note_id}",
         "status": package.status,
         "requires_review": bool(package.requires_review),
         "workspace_id": package.kanban_workspace_id,
@@ -407,13 +439,13 @@ def _serialize_package_summary(connection: sqlite3.Connection, package) -> dict[
 
 
 def _serialize_package_detail(connection: sqlite3.Connection, package) -> dict[str, Any]:
-    note = get_note(connection, package.note_id)
+    note = _maybe_get_note(connection, package.note_id)
     return {
         "id": package.id,
         "note_id": package.note_id,
-        "note_title": note.title,
-        "source_note_path": note.absolute_path,
-        "source_note_title": note.title,
+        "note_title": note.title if note else f"Missing note {package.note_id}",
+        "source_note_path": note.absolute_path if note else package.note_id,
+        "source_note_title": note.title if note else f"Missing note {package.note_id}",
         "status": package.status,
         "requires_review": bool(package.requires_review),
         "workspace_id": package.kanban_workspace_id,
@@ -447,13 +479,13 @@ def _serialize_step(step) -> dict[str, Any]:
 
 def _serialize_delivery(connection: sqlite3.Connection, delivery) -> dict[str, Any]:
     package = get_prompt_package(connection, delivery.package_id)
-    note = get_note(connection, package.note_id)
+    note = _maybe_get_note(connection, package.note_id)
     return {
         "id": delivery.id,
         "package_id": delivery.package_id,
         "source_note_id": package.note_id,
-        "source_note_title": note.title,
-        "source_note_path": note.absolute_path,
+        "source_note_title": note.title if note else f"Missing note {package.note_id}",
+        "source_note_path": note.absolute_path if note else package.note_id,
         "kanban_workspace_id": delivery.kanban_workspace_id,
         "request": delivery.request,
         "response": delivery.response,
@@ -462,6 +494,13 @@ def _serialize_delivery(connection: sqlite3.Connection, delivery) -> dict[str, A
         "created_at": delivery.created_at,
         "delivered_at": delivery.delivered_at,
     }
+
+
+def _maybe_get_note(connection: sqlite3.Connection, note_id: str):
+    try:
+        return get_note(connection, note_id)
+    except KeyError:
+        return None
 
 
 def _normalize_workspace(project: Any) -> dict[str, Any]:
