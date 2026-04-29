@@ -1,12 +1,12 @@
 # Kanban Prompt Companion
 
-Kanban Prompt Companion is a focused local app that turns Obsidian voice-note markdown into reviewed Kanban-ready task chains.
+Kanban Prompt Companion is a focused local app that turns Obsidian markdown notes in a configured watch folder into reviewed Kanban-ready tasks.
 
 Flow:
 
 `Obsidian note -> cleaned intent -> prompt package -> human review -> Kanban delivery`
 
-This repo stays intentionally small. It is not a full PromptForge platform clone.
+This repo stays intentionally small and focused on note-to-task delivery.
 
 ## Screenshots
 
@@ -24,7 +24,7 @@ This repo stays intentionally small. It is not a full PromptForge platform clone
 
 ## Features
 
-- Watches a vault folder for markdown voice notes
+- Watches a vault folder for markdown notes in the configured intake directory
 - Extracts and cleans note intent into a versioned prompt package
 - Human-in-the-loop review/edit step before delivery
 - Kanban preview + delivery through supported API surface
@@ -36,14 +36,14 @@ This repo stays intentionally small. It is not a full PromptForge platform clone
 - Frontend: React + Vite + Tailwind
 - Delivery target: Kanban integration endpoints (no direct board file writes)
 
-## Prerequisite: Forked Kanban Build
+## Kanban Compatibility
 
 This companion supports both:
 
 - stock Kanban instances
 - custom/forked Kanban instances with extended endpoints
 
-When available, it uses the integration endpoints below:
+When available, it uses these endpoints:
 
 - `projects.list`
 - `projects.add`
@@ -58,6 +58,10 @@ Delivery behavior is capability-aware:
 3. If `workspace.importTasks` is not present on the target instance, it falls back to built-in task creation via standard tRPC task-create procedures.
 
 This means the companion works against stock or custom Kanban, with graceful downgrade behavior.
+
+If you want the endpoint-enabled Kanban build, use this fork branch:
+
+- <https://github.com/ngallodev-software/kanban/tree/fork/feature-requests/roll-up>
 
 ## Quick Start
 
