@@ -45,7 +45,11 @@ class NoteWatcher:
         root = self.watch_root
         if not root.exists():
             return []
-        return sorted(path for path in root.rglob("*.md") if is_processable_markdown_path(path))
+        return sorted(
+            path
+            for path in root.rglob("*.md")
+            if is_processable_markdown_path(path) and self._is_within_watch_root(path)
+        )
 
     def enqueue(self, path: str | Path) -> None:
         candidate = Path(path)
@@ -65,6 +69,8 @@ class NoteWatcher:
     def process_path(self, path: str | Path) -> object | None:
         candidate = Path(path)
         if not candidate.exists() or not is_processable_markdown_path(candidate):
+            return None
+        if not self._is_within_watch_root(candidate):
             return None
 
         raw_text = read_stable_text(
@@ -91,6 +97,13 @@ class NoteWatcher:
             return candidate.relative_to(self.vault_path).as_posix()
         except ValueError:
             return candidate.name
+
+    def _is_within_watch_root(self, candidate: Path) -> bool:
+        try:
+            candidate.resolve().relative_to(self.watch_root.resolve())
+            return True
+        except ValueError:
+            return False
 
 
 class _WatcherEventHandler(FileSystemEventHandler):

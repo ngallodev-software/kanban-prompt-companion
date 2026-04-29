@@ -83,6 +83,21 @@ def test_watcher_startup_scan_discovers_fixture_note(tmp_path: Path) -> None:
     assert watcher.startup_scan() == [note_path]
 
 
+def test_watcher_ignores_symlink_escape_outside_watch_root(tmp_path: Path) -> None:
+    note_path = _vault_note_path(tmp_path)
+    outside = tmp_path / "outside.md"
+    outside.write_text(_fixture_text(), encoding="utf-8")
+    escaped_link = note_path.parent / "escaped.md"
+    escaped_link.symlink_to(outside)
+
+    watcher = NoteWatcher(vault_path=tmp_path / "Vault", watch_folder="Inbox/Voice")
+
+    discovered = watcher.startup_scan()
+    assert note_path in discovered
+    assert escaped_link not in discovered
+    assert watcher.process_path(escaped_link) is None
+
+
 def test_note_parser_extracts_frontmatter_control_and_transcript(tmp_path: Path) -> None:
     note_path = _vault_note_path(tmp_path)
     note = _loaded_note(note_path)
