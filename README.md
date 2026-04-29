@@ -1,25 +1,109 @@
 # Kanban Prompt Companion
 
-Kanban Prompt Companion is a small local app that watches an Obsidian vault for voice-note markdown, turns the note into a cleaned prompt package, lets a human review the result, and prepares delivery into Kanban tasks.
+Kanban Prompt Companion is a focused local app that turns Obsidian voice-note markdown into reviewed Kanban-ready task chains.
 
-It is intentionally not a platform. It does not manage users, roles, arbitrary delivery targets, dashboards, or any of the heavier PromptForge machinery.
+Flow:
 
-## Local runtime
+`Obsidian note -> cleaned intent -> prompt package -> human review -> Kanban delivery`
 
-- Python backend: FastAPI on `127.0.0.1:8091`
-- Frontend: Vite React app in `web/`
-- Input source: an Obsidian vault folder on the local machine
+This repo stays intentionally small. It is not a full PromptForge platform clone.
 
-## Integration mode
+## Screenshots
 
-The companion is meant to hand off reviewed prompt packages into the modified Kanban app through its supported integration surface. It should not write directly to Kanban board state files.
+### Intake
+![Intake view](docs/screenshots/intake.png)
 
-## Vault and folders
+### Review
+![Review view](docs/screenshots/review.png)
 
-- Vault path: configured by `KPC_VAULT_PATH`
-- Watch folder: configured by `KPC_WATCH_FOLDER`
-- Processed folder: configured by `KPC_PROCESSED_FOLDER`
+### Deliveries
+![Deliveries view](docs/screenshots/deliveries.png)
 
-## Out of scope
+### Settings
+![Settings view](docs/screenshots/settings.png)
 
-See [NON_GOALS.md](./NON_GOALS.md) for the full boundary list.
+## Features
+
+- Watches a vault folder for markdown voice notes
+- Extracts and cleans note intent into a versioned prompt package
+- Human-in-the-loop review/edit step before delivery
+- Kanban preview + delivery through supported API surface
+- Delivery history and retry flow
+
+## Architecture
+
+- Backend: FastAPI + SQLite
+- Frontend: React + Vite + Tailwind
+- Delivery target: Kanban integration endpoints (no direct board file writes)
+
+## Prerequisite: Forked Kanban Build
+
+This companion requires the forked Kanban build that exposes the API/tRPC endpoints used for integration, including:
+
+- `projects.list`
+- `projects.add`
+- `workspace.getState`
+- `workspace.importTasks`
+- `workspace.upsertTaskByExternalKey` (when available in your Kanban fork)
+
+Without that forked Kanban API surface, preview/delivery from this app will not work.
+
+## Quick Start
+
+### 1) Clone and configure
+
+```bash
+cp .env.example .env
+```
+
+Update `.env` with your local vault and Kanban endpoint settings.
+
+### 2) Backend
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+uvicorn app.main:app --host 127.0.0.1 --port 8091 --reload
+```
+
+### 3) Frontend
+
+```bash
+cd web
+npm install
+npm run dev -- --host 127.0.0.1 --port 5178
+```
+
+Open `http://127.0.0.1:5178`.
+
+## Testing
+
+Backend:
+
+```bash
+pytest -q
+```
+
+Frontend:
+
+```bash
+cd web
+npm test -- --run
+npm run typecheck
+npm run build
+```
+
+## Scope and Non-Goals
+
+This project explicitly excludes platform-heavy features like auth systems, admin dashboards, multi-target routing, and direct Kanban state-file mutation.
+
+See [NON_GOALS.md](./NON_GOALS.md).
+
+## Runbook
+
+Operational and debugging details are in [RUNBOOK.md](./RUNBOOK.md).
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
