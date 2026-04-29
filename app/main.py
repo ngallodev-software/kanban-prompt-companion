@@ -312,7 +312,7 @@ def _perform_delivery(
         if preview["procedure"] == "workspace.upsertTaskByExternalKey":
             response_payload = client.upsert_task_by_external_key(manifest.tasks[0], workspace_id=workspace_id)
         else:
-            response_payload = client.import_tasks(manifest, workspace_id=workspace_id)
+            response_payload = client.import_or_upsert(manifest, workspace_id=workspace_id)
         delivered = mark_delivery_success(connection, delivery.id, response_payload=response_payload)
         mark_prompt_package_status(connection, package.id, status="delivered", requires_review=False)
         mark_prompt_steps_status(connection, package.id, status="delivered")

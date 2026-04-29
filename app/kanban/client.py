@@ -34,6 +34,7 @@ class KanbanClient:
         self.config = config
         self._transport = transport
         self._upsert_available: bool | None = None
+        self._builtin_create_procedure: str | None = None
 
     def list_projects(self) -> list[dict[str, Any]]:
         payload = self._request("projects.list")
@@ -96,12 +97,90 @@ class KanbanClient:
                 return self.upsert_task_by_external_key(manifest.tasks[0], workspace_id=workspace_id)
             except KanbanClientError:
                 self._upsert_available = False
-        return self.import_tasks(manifest, workspace_id=workspace_id)
+
+        try:
+            return self.import_tasks(manifest, workspace_id=workspace_id)
+        except KanbanClientError as exc:
+            if not self._looks_like_missing_procedure_error(str(exc)):
+                raise
+
+        return self.create_tasks_with_builtin_trpc(manifest, workspace_id=workspace_id)
+
+    def create_tasks_with_builtin_trpc(
+        self,
+        manifest: KanbanImportManifestV1,
+        *,
+        workspace_id: str | None = None,
+    ) -> dict[str, Any]:
+        procedure = self._builtin_create_procedure or self._probe_builtin_create_procedure(workspace_id=workspace_id)
+        created: list[dict[str, Any]] = []
+        for task in manifest.tasks:
+            created.append(self._create_single_task_builtin(task, procedure=procedure, workspace_id=workspace_id))
+        return {
+            "ok": True,
+            "mode": "builtin_create",
+            "procedure": procedure,
+            "count": len(created),
+            "created": created,
+        }
 
     def _can_use_upsert(self, workspace_id: str | None) -> bool:
         if self._upsert_available is not None:
             return self._upsert_available
         return self.probe_upsert_capability(workspace_id)
+
+    def _probe_builtin_create_procedure(self, workspace_id: str | None = None) -> str:
+        state = self.get_workspace_state(workspace_id)
+        available = state.get("availableMutations")
+        candidates = [
+            "workspace.createTask",
+            "workspace.addTask",
+            "tasks.create",
+            "task.create",
+            "workspace.create",
+        ]
+        if isinstance(available, dict):
+            for candidate in candidates:
+                if available.get(candidate):
+                    self._builtin_create_procedure = candidate
+                    return candidate
+        self._builtin_create_procedure = "workspace.createTask"
+        return self._builtin_create_procedure
+
+    def _create_single_task_builtin(
+        self,
+        task: KanbanTaskV1,
+        *,
+        procedure: str,
+        workspace_id: str | None,
+    ) -> dict[str, Any]:
+        body = {
+            "title": task.title,
+            "description": task.prompt,
+            "externalTaskKey": task.external_task_key,
+        }
+        payload_candidates = [body, {"task": body}, {"input": body}]
+        last_error: KanbanClientError | None = None
+        for payload in payload_candidates:
+            try:
+                result = self._request(procedure, payload, workspace_id=workspace_id)
+                if not isinstance(result, dict):
+                    return {"result": result}
+                return result
+            except KanbanClientError as exc:
+                last_error = exc
+        raise KanbanClientError(str(last_error) if last_error else f"{procedure} failed")
+
+    def _looks_like_missing_procedure_error(self, message: str) -> bool:
+        text = message.lower()
+        markers = [
+            "not_found",
+            "not found",
+            "procedure not found",
+            "no procedure",
+            "cannot find procedure",
+        ]
+        return any(marker in text for marker in markers)
 
     def _request(
         self,
