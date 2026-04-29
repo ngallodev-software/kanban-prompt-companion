@@ -8,11 +8,12 @@ from threading import Event, Thread
 
 from watchdog.observers import Observer
 
+from app.ingest.lifecycle import move_note_to_folder
 from app.ingest.watcher import NoteWatcher, build_observer
 from app.pipeline.cleanup import cleanup_transcript
 from app.pipeline.directives import parse_directives
 from app.pipeline.render import build_prompt_package
-from app.storage import create_prompt_package, upsert_note_from_loaded_note
+from app.storage import create_prompt_package, update_note_location, mark_note_status, upsert_note_from_loaded_note
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class NoteIngestRuntime:
     connection: sqlite3.Connection
     template_dir: Path
     watcher: NoteWatcher
+    processing_folder: str
     observer: Observer | None = None
     worker: Thread | None = None
     stop_event: Event = field(default_factory=Event)
@@ -80,6 +82,23 @@ class NoteIngestRuntime:
                 template_dir=self.template_dir,
             )
             stored_package = create_prompt_package(self.connection, stored_note.id, package)
+            try:
+                moved_path = move_note_to_folder(
+                    stored_note.absolute_path,
+                    vault_path=self.watcher.vault_path,
+                    source_folder=self.watcher.watch_folder,
+                    target_folder=self.processing_folder,
+                )
+                if moved_path != Path(stored_note.absolute_path):
+                    stored_note = update_note_location(
+                        self.connection,
+                        stored_note.id,
+                        absolute_path=str(moved_path),
+                        relative_path=moved_path.relative_to(self.watcher.vault_path).as_posix(),
+                    )
+                mark_note_status(self.connection, stored_note.id, "review_ready")
+            except Exception:
+                logger.warning("note move to processing failed for %s", stored_note.absolute_path, exc_info=True)
             logger.info(
                 "processed %s note=%s package=%s steps=%s",
                 source,

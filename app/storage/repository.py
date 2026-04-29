@@ -181,6 +181,26 @@ def mark_note_status(
     return get_note(connection, note_id)
 
 
+def update_note_location(
+    connection: sqlite3.Connection,
+    note_id: str,
+    *,
+    absolute_path: str,
+    relative_path: str,
+) -> NoteRecord:
+    now = _utc_now()
+    connection.execute(
+        """
+        UPDATE notes
+        SET absolute_path = ?, relative_path = ?, last_seen_at = ?
+        WHERE id = ?
+        """,
+        (absolute_path, relative_path, now, note_id),
+    )
+    connection.commit()
+    return get_note(connection, note_id)
+
+
 def create_prompt_package(
     connection: sqlite3.Connection,
     note_id: str,

@@ -90,6 +90,7 @@ def test_running_workflow_processes_notes_from_disk_and_delivers_them(tmp_path: 
         AppConfig(
             vault_path=vault_path,
             watch_folder=watch_folder,
+            processing_folder="Processing/Voice",
             processed_folder="Processed/Voice",
             database_path=tmp_path / "state.sqlite3",
             kanban_base_url="http://kanban.local",
@@ -150,7 +151,7 @@ def test_running_workflow_processes_notes_from_disk_and_delivers_them(tmp_path: 
         assert deliver.json()["delivery"]["status"] == "delivered"
         assert deliver.json()["kanban_response"]["mode"] == "upsert"
 
-        assert get_note(app.state.db_connection, live_note_id).status == "delivered"
+        assert get_note(app.state.db_connection, live_note_id).status == "review_ready"
         assert calls.count("/api/trpc/workspace.getState") >= 2
         assert "/api/trpc/workspace.upsertTaskByExternalKey" in calls
 
@@ -199,6 +200,7 @@ def test_workspace_selection_is_persisted_and_used_for_preview(tmp_path: Path) -
         AppConfig(
             vault_path=vault_path,
             watch_folder=watch_folder,
+            processing_folder="Processing/Voice",
             processed_folder="Processed/Voice",
             database_path=tmp_path / "state.sqlite3",
             kanban_base_url="http://kanban.local",
@@ -237,3 +239,76 @@ def test_workspace_selection_is_persisted_and_used_for_preview(tmp_path: Path) -
         assert preview.status_code == 200
         assert preview.json()["workspace_id"] == "product"
         assert calls.count("/api/trpc/projects.list") == 1
+
+
+def test_note_moves_to_processing_then_processed_and_survives_delivery_failure(tmp_path: Path) -> None:
+    vault_path = tmp_path / "Vault"
+    watch_folder = "Inbox/Voice"
+    processing_folder = "Processing/Voice"
+    processed_folder = "Processed/Voice"
+    note_root = vault_path / watch_folder
+    note_root.mkdir(parents=True, exist_ok=True)
+
+    note_path = note_root / "move-me.md"
+    note_path.write_text(
+        _fixture_text(
+            "Move me note",
+            "Move me through processing and review, then let delivery fail without touching the file.",
+        ),
+        encoding="utf-8",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/workspace.getState"):
+            return httpx.Response(200, json={"result": {"data": {"json": {"canUpsertTaskByExternalKey": True}}}})
+        if request.url.path.endswith("/workspace.upsertTaskByExternalKey"):
+            return httpx.Response(500, json={"error": {"message": "delivery failed"}})
+        raise AssertionError(request.url.path)
+
+    app = create_app(
+        AppConfig(
+            vault_path=vault_path,
+            watch_folder=watch_folder,
+            processing_folder=processing_folder,
+            processed_folder=processed_folder,
+            database_path=tmp_path / "state.sqlite3",
+            kanban_base_url="http://kanban.local",
+            kanban_workspace_id="kanban",
+            template_dir=_templates_dir(),
+        ),
+        kanban_client=KanbanClient(
+            KanbanClientConfig(base_url="http://kanban.local", workspace_id="kanban"),
+            transport=httpx.MockTransport(handler),
+        ),
+    )
+
+    with TestClient(app) as client:
+        package_id = _wait_for(
+            lambda: next(
+                (
+                    item["id"]
+                    for item in client.get("/api/review").json()["items"]
+                    if item["note_title"] == "Move me note"
+                ),
+                None,
+            )
+        )
+
+        assert not note_path.exists()
+        processing_path = vault_path / processing_folder / "move-me.md"
+        assert processing_path.exists()
+
+        approve = client.post(f"/api/packages/{package_id}/approve")
+        assert approve.status_code == 200
+        assert approve.json()["package"]["status"] == "approved"
+
+        processed_path = vault_path / processed_folder / "move-me.md"
+        assert processed_path.exists()
+        assert not processing_path.exists()
+        assert get_note(app.state.db_connection, approve.json()["package"]["note_id"]).absolute_path == str(processed_path)
+
+        deliver = client.post(f"/api/packages/{package_id}/kanban/deliver")
+        assert deliver.status_code == 200
+        assert deliver.json()["delivery"]["status"] == "failed"
+        assert processed_path.exists()
+        assert get_note(app.state.db_connection, approve.json()["package"]["note_id"]).absolute_path == str(processed_path)

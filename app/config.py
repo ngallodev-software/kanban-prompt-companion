@@ -10,6 +10,7 @@ from pydantic import BaseModel, HttpUrl
 class AppConfig(BaseModel):
     vault_path: Path
     watch_folder: str
+    processing_folder: str
     processed_folder: str
     database_path: Path
     kanban_base_url: HttpUrl
@@ -32,6 +33,7 @@ def load_config() -> AppConfig:
     return AppConfig(
         vault_path=Path(os.getenv("KPC_VAULT_PATH", "")).expanduser(),
         watch_folder=os.getenv("KPC_WATCH_FOLDER", "Inbox/Voice"),
+        processing_folder=os.getenv("KPC_PROCESSING_FOLDER", "Processing/Voice"),
         processed_folder=os.getenv("KPC_PROCESSED_FOLDER", "Processed/Voice"),
         database_path=Path(os.getenv("KPC_DATABASE_PATH", "./data/kanban-prompt-companion.sqlite3")).expanduser(),
         kanban_base_url=os.getenv("KPC_KANBAN_BASE_URL", "http://127.0.0.1:3484"),

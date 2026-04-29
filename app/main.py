@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from typing import Any
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -10,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from app.config import AppConfig, load_config
 from app.contracts import HealthResponse, PromptPackageV1
 from app.ingest import NoteWatcher
+from app.ingest.lifecycle import move_note_to_folder
 from app.ingest.runtime import NoteIngestRuntime
 from app.kanban.client import KanbanClient, KanbanClientConfig, KanbanClientError, KanbanTransportError
 from app.kanban.manifest import build_kanban_manifest
@@ -29,6 +31,7 @@ from app.storage import (
     mark_package_approved,
     mark_prompt_package_status,
     mark_prompt_steps_status,
+    update_note_location,
     update_delivery_request,
     update_prompt_package_workspace,
     update_prompt_step,
@@ -39,6 +42,7 @@ logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
+logger = logging.getLogger(__name__)
 
 
 class StepUpdateRequest(BaseModel):
@@ -96,6 +100,7 @@ def create_app(
                     vault_path=app.state.config.vault_path,
                     watch_folder=app.state.config.watch_folder,
                 ),
+                processing_folder=app.state.config.processing_folder,
             )
             app.state.ingest_runtime.start()
 
@@ -164,6 +169,24 @@ def create_app(
         connection = _db(app)
         approved = mark_package_approved(connection, package_id)
         response: dict[str, Any] = {"package": _serialize_package_detail(connection, approved)}
+        note = get_note(connection, approved.note_id)
+        try:
+            moved_path = move_note_to_folder(
+                note.absolute_path,
+                vault_path=app.state.config.vault_path,
+                source_folder=app.state.config.processing_folder,
+                target_folder=app.state.config.processed_folder,
+            )
+            if moved_path != Path(note.absolute_path):
+                update_note_location(
+                    connection,
+                    note.id,
+                    absolute_path=str(moved_path),
+                    relative_path=moved_path.relative_to(app.state.config.vault_path).as_posix(),
+                )
+            mark_note_status(connection, note.id, "approved")
+        except Exception:
+            logger.warning("note move to processed failed for %s", note.absolute_path, exc_info=True)
         if body and body.deliver:
             response["delivery"] = _deliver_package(connection, approved, app)
         return response
@@ -348,19 +371,16 @@ def _perform_delivery(
         delivered = mark_delivery_success(connection, delivery.id, response_payload=response_payload)
         mark_prompt_package_status(connection, package.id, status="delivered", requires_review=False)
         mark_prompt_steps_status(connection, package.id, status="delivered")
-        mark_note_status(connection, package.note_id, "delivered")
         return {"delivery": _serialize_delivery(connection, delivered), "kanban_response": response_payload}
     except KanbanTransportError as exc:
         failed = mark_delivery_failed(connection, delivery.id, error_message=f"kanban connection error: {exc}")
         mark_prompt_package_status(connection, package.id, status="failed", requires_review=True, error_message=str(exc))
         mark_prompt_steps_status(connection, package.id, status="failed")
-        mark_note_status(connection, package.note_id, "failed", error_message=str(exc))
         return {"delivery": _serialize_delivery(connection, failed)}
     except KanbanClientError as exc:
         failed = mark_delivery_failed(connection, delivery.id, error_message=str(exc))
         mark_prompt_package_status(connection, package.id, status="failed", requires_review=True, error_message=str(exc))
         mark_prompt_steps_status(connection, package.id, status="failed")
-        mark_note_status(connection, package.note_id, "failed", error_message=str(exc))
         return {"delivery": _serialize_delivery(connection, failed)}
 
 
