@@ -38,7 +38,12 @@ This repo stays intentionally small. It is not a full PromptForge platform clone
 
 ## Prerequisite: Forked Kanban Build
 
-This companion requires the forked Kanban build that exposes the API/tRPC endpoints used for integration, including:
+This companion supports both:
+
+- stock Kanban instances
+- custom/forked Kanban instances with extended endpoints
+
+When available, it uses the integration endpoints below:
 
 - `projects.list`
 - `projects.add`
@@ -46,7 +51,13 @@ This companion requires the forked Kanban build that exposes the API/tRPC endpoi
 - `workspace.importTasks`
 - `workspace.upsertTaskByExternalKey` (when available in your Kanban fork)
 
-Without that forked Kanban API surface, preview/delivery from this app will not work.
+Delivery behavior is capability-aware:
+
+1. For single-step packages, it prefers `workspace.upsertTaskByExternalKey` when supported.
+2. Otherwise it uses `workspace.importTasks`.
+3. If `workspace.importTasks` is not present on the target instance, it falls back to built-in task creation via standard tRPC task-create procedures.
+
+This means the companion works against stock or custom Kanban, with graceful downgrade behavior.
 
 ## Quick Start
 
@@ -93,6 +104,11 @@ npm test -- --run
 npm run typecheck
 npm run build
 ```
+
+Backend integration path coverage includes both:
+
+- custom endpoint path (`workspace.importTasks` / `workspace.upsertTaskByExternalKey`)
+- stock fallback path (built-in tRPC task creation when import endpoint is missing)
 
 ## Scope and Non-Goals
 
