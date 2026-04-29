@@ -1,0 +1,44 @@
+# Environment files
+.env
+.env*
+.env.*
+!.env.example
+
+# Python caches and tooling
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.venv/
+venv/
+
+# Node dependencies and tooling caches
+node_modules/
+web/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Frontend build outputs
+dist/
+web/dist/
+.vite/
+coverage/
+
+# Test/build artifacts
+*.log
+*.tmp
+*.temp
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
