@@ -37,6 +37,9 @@ coverage/
 *.tmp
 *.temp
 data/
+build/
+*.spec
+*.egg-info/
 
 # OS/editor noise
 .DS_Store

@@ -63,6 +63,10 @@ If you want the endpoint-enabled Kanban build, use this fork branch:
 
 - <https://github.com/ngallodev-software/kanban/tree/fork/feature-requests/roll-up>
 
+Upstream Kanban project:
+
+- <https://github.com/cline/kanban>
+
 ## Quick Start
 
 ### 1) Clone and configure
@@ -113,6 +117,28 @@ Backend integration path coverage includes both:
 
 - custom endpoint path (`workspace.importTasks` / `workspace.upsertTaskByExternalKey`)
 - stock fallback path (built-in tRPC task creation when import endpoint is missing)
+
+## Build a Single Executable
+
+This repo includes a one-file executable build using PyInstaller.
+
+Versioning starts at `0.0.1` and is built into the binary name.
+
+Build:
+
+```bash
+bash scripts/build_executable.sh
+```
+
+Output:
+
+- `dist/kanban-prompt-companion-<version>-<os>-<arch>`
+
+You can also check the app version directly:
+
+```bash
+python -m app.cli --version
+```
 
 ## Scope and Non-Goals
 
