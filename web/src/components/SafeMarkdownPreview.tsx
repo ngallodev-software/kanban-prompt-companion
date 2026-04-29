@@ -87,11 +87,20 @@ function parseMarkdown(input: string): MarkdownBlock[] {
   return blocks;
 }
 
-export function SafeMarkdownPreview({ markdown, className }: { markdown: string; className?: string }) {
+export function SafeMarkdownPreview({
+  markdown,
+  title,
+  className,
+}: {
+  markdown: string;
+  title?: string;
+  className?: string;
+}) {
   const blocks = parseMarkdown(markdown);
 
   return (
     <div className={cn("space-y-3 text-sm leading-6 text-text-primary", className)}>
+      {title ? <div className="text-base font-semibold text-text-primary">{title}</div> : null}
       {blocks.length === 0 ? (
         <p className="text-text-tertiary">Nothing to preview.</p>
       ) : null}

@@ -58,7 +58,7 @@ class KanbanClient:
         return payload
 
     def get_workspace_state(self, workspace_id: str | None = None) -> dict[str, Any]:
-        payload = self._request("workspace.getState", workspace_id=workspace_id)
+        payload = self._request("workspace.getState", workspace_id=workspace_id, method="GET")
         if not isinstance(payload, dict):
             raise KanbanClientError("invalid workspace.getState response")
         return payload
@@ -198,6 +198,7 @@ class KanbanClient:
         payload: object | None = None,
         *,
         workspace_id: str | None = None,
+        method: str = "POST",
     ) -> Any:
         headers = {"content-type": "application/json"}
         resolved_workspace_id = workspace_id or self.config.workspace_id
@@ -210,7 +211,10 @@ class KanbanClient:
                 timeout=self.config.timeout_seconds,
                 transport=self._transport,
             ) as client:
-                response = client.post(f"/api/trpc/{procedure}", json=payload, headers=headers)
+                if method.upper() == "GET":
+                    response = client.get(f"/api/trpc/{procedure}", headers=headers)
+                else:
+                    response = client.post(f"/api/trpc/{procedure}", json=payload, headers=headers)
         except httpx.HTTPError as exc:
             raise KanbanTransportError(str(exc)) from exc
 

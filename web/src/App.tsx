@@ -471,7 +471,7 @@ function ReviewScreen({
   const reviewQuery = useQuery({ queryKey: ["review"], queryFn: getReviewQueue, staleTime: 5_000 });
   const workspacesQuery = useQuery({ queryKey: ["kanban-workspaces"], queryFn: listKanbanWorkspaces, staleTime: 30_000 });
   const reviewPackages = reviewQuery.data?.items ?? [];
-  const [selectedPackageId, setSelectedPackageId] = useState<string | null>(packageSelection ?? null);
+  const selectedPackageId = packageSelection ?? reviewPackages[0]?.id ?? null;
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const packageQuery = useQuery({
     queryKey: ["package", selectedPackageId],
@@ -486,22 +486,6 @@ function ReviewScreen({
   const [previewResult, setPreviewResult] = useState<unknown>(null);
   const [deliveryResult, setDeliveryResult] = useState<unknown>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (reviewPackages.length === 0) {
-      return;
-    }
-    const selectedStillExists = selectedPackageId ? reviewPackages.some((item) => item.id === selectedPackageId) : false;
-    if (!selectedPackageId || !selectedStillExists) {
-      setSelectedPackageId(reviewPackages[0].id);
-    }
-  }, [reviewPackages, selectedPackageId]);
-
-  useEffect(() => {
-    if (packageSelection && packageSelection !== selectedPackageId) {
-      setSelectedPackageId(packageSelection);
-    }
-  }, [packageSelection, selectedPackageId]);
 
   useEffect(() => {
     setSelectedWorkspaceId(packageDetail?.workspace_id ?? null);
@@ -638,12 +622,6 @@ function ReviewScreen({
           selectedStep.start_in_plan_mode !== draft.start_in_plan_mode),
     );
 
-  useEffect(() => {
-    if (selectedPackageId) {
-      navigate("/review", { package: selectedPackageId });
-    }
-  }, [navigate, selectedPackageId]);
-
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
       <div className="space-y-4">
@@ -668,7 +646,7 @@ function ReviewScreen({
               <TableRow
                 key={item.id}
                 className={cn(item.id === selectedPackageId ? "bg-surface-2" : "")}
-                onClick={() => setSelectedPackageId(item.id)}
+                onClick={() => navigate("/review", { package: item.id })}
               >
                 <TableCell className="space-y-1">
                   <p className="font-medium text-text-primary">{item.note_title}</p>
@@ -908,7 +886,10 @@ function ReviewScreen({
             <CardDescription>The preview renders text only and never executes HTML.</CardDescription>
           </CardHeader>
           <CardContent>
-            <SafeMarkdownPreview markdown={draft?.prompt_markdown ?? selectedStep?.prompt_markdown ?? ""} />
+            <SafeMarkdownPreview
+              title={draft?.title ?? selectedStep?.title ?? ""}
+              markdown={draft?.prompt_markdown ?? selectedStep?.prompt_markdown ?? ""}
+            />
           </CardContent>
         </Card>
 
@@ -939,7 +920,8 @@ function DeliveriesScreen({
   queryClient: ReturnType<typeof useQueryClient>;
 }) {
   const deliveriesQuery = useQuery({ queryKey: ["deliveries"], queryFn: listDeliveries, staleTime: 5_000 });
-  const [selectedDeliveryId, setSelectedDeliveryId] = useState<string | null>(deliverySelection ?? null);
+  const deliveries = deliveriesQuery.data?.items ?? [];
+  const selectedDeliveryId = deliverySelection ?? deliveries[0]?.id ?? null;
   const deliveryDetailQuery = useQuery({
     queryKey: ["delivery", selectedDeliveryId],
     queryFn: () => getDelivery(selectedDeliveryId ?? ""),
@@ -958,30 +940,7 @@ function DeliveriesScreen({
     },
   });
 
-  const deliveries = deliveriesQuery.data?.items ?? [];
   const selectedDelivery = deliveryDetailQuery.data?.delivery ?? deliveries.find((item) => item.id === selectedDeliveryId) ?? null;
-
-  useEffect(() => {
-    if (deliveries.length === 0) {
-      return;
-    }
-    const selectedStillExists = selectedDeliveryId ? deliveries.some((item) => item.id === selectedDeliveryId) : false;
-    if (!selectedDeliveryId || !selectedStillExists) {
-      setSelectedDeliveryId(deliveries[0].id);
-    }
-  }, [deliveries, selectedDeliveryId]);
-
-  useEffect(() => {
-    if (deliverySelection && deliverySelection !== selectedDeliveryId) {
-      setSelectedDeliveryId(deliverySelection);
-    }
-  }, [deliverySelection, selectedDeliveryId]);
-
-  useEffect(() => {
-    if (selectedDeliveryId) {
-      navigate("/deliveries", { delivery: selectedDeliveryId });
-    }
-  }, [navigate, selectedDeliveryId]);
 
   const refreshDeliveries = async () => {
     await Promise.all([deliveriesQuery.refetch(), deliveryDetailQuery.refetch()]);
@@ -1012,7 +971,7 @@ function DeliveriesScreen({
               <TableRow
                 key={item.id}
                 className={cn(item.id === selectedDeliveryId ? "bg-surface-2" : "")}
-                onClick={() => setSelectedDeliveryId(item.id)}
+                onClick={() => navigate("/deliveries", { delivery: item.id })}
               >
                 <TableCell className="space-y-1">
                   <p className="font-medium text-text-primary">{item.source_note_title}</p>

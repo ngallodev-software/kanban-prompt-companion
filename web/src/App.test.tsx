@@ -593,9 +593,15 @@ describe("Kanban Prompt Companion UI", () => {
   });
 
   it("keeps markdown preview free of raw HTML execution", () => {
-    const { container } = render(<SafeMarkdownPreview markdown={"# Heading\n<script>alert(1)</script>"} />);
+    const { container, rerender } = render(
+      <SafeMarkdownPreview title="Step title" markdown={"# Heading\n<script>alert(1)</script>"} />,
+    );
 
     expect(container.querySelector("script")).toBeNull();
+    expect(screen.getByText("Step title")).toBeInTheDocument();
     expect(screen.getByText("<script>alert(1)</script>")).toBeInTheDocument();
+
+    rerender(<SafeMarkdownPreview title="Updated step title" markdown={"# Heading\n<script>alert(1)</script>"} />);
+    expect(screen.getByText("Updated step title")).toBeInTheDocument();
   });
 });

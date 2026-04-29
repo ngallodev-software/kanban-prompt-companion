@@ -36,10 +36,10 @@ def test_list_projects_and_add_project() -> None:
 
 
 def test_import_or_upsert_prefers_upsert_when_available() -> None:
-    calls: list[str] = []
+    calls: list[tuple[str, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        calls.append(request.url.path)
+        calls.append((request.method, request.url.path))
         if request.url.path.endswith("/workspace.getState"):
             return _json_response({"result": {"data": {"json": {"canUpsertTaskByExternalKey": True}}}})
         if request.url.path.endswith("/workspace.upsertTaskByExternalKey"):
@@ -61,14 +61,17 @@ def test_import_or_upsert_prefers_upsert_when_available() -> None:
     )
 
     assert client.import_or_upsert(manifest) == {"ok": True, "mode": "upsert"}
-    assert calls == ["/api/trpc/workspace.getState", "/api/trpc/workspace.upsertTaskByExternalKey"]
+    assert calls == [
+        ("GET", "/api/trpc/workspace.getState"),
+        ("POST", "/api/trpc/workspace.upsertTaskByExternalKey"),
+    ]
 
 
 def test_import_or_upsert_falls_back_to_import_when_upsert_unavailable() -> None:
-    calls: list[str] = []
+    calls: list[tuple[str, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        calls.append(request.url.path)
+        calls.append((request.method, request.url.path))
         if request.url.path.endswith("/workspace.getState"):
             return _json_response({"result": {"data": {"json": {"canImportTasks": True}}}})
         if request.url.path.endswith("/workspace.importTasks"):
@@ -90,14 +93,17 @@ def test_import_or_upsert_falls_back_to_import_when_upsert_unavailable() -> None
     )
 
     assert client.import_or_upsert(manifest) == {"ok": True, "mode": "import"}
-    assert calls == ["/api/trpc/workspace.getState", "/api/trpc/workspace.importTasks"]
+    assert calls == [
+        ("GET", "/api/trpc/workspace.getState"),
+        ("POST", "/api/trpc/workspace.importTasks"),
+    ]
 
 
 def test_import_or_upsert_falls_back_to_builtin_create_when_import_unavailable() -> None:
-    calls: list[str] = []
+    calls: list[tuple[str, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        calls.append(request.url.path)
+        calls.append((request.method, request.url.path))
         if request.url.path.endswith("/workspace.getState"):
             return _json_response(
                 {
@@ -140,10 +146,10 @@ def test_import_or_upsert_falls_back_to_builtin_create_when_import_unavailable()
         "created": [{"ok": True, "id": "task-1"}],
     }
     assert calls == [
-        "/api/trpc/workspace.getState",
-        "/api/trpc/workspace.importTasks",
-        "/api/trpc/workspace.getState",
-        "/api/trpc/workspace.createTask",
+        ("GET", "/api/trpc/workspace.getState"),
+        ("POST", "/api/trpc/workspace.importTasks"),
+        ("GET", "/api/trpc/workspace.getState"),
+        ("POST", "/api/trpc/workspace.createTask"),
     ]
 
 
