@@ -1,0 +1,51 @@
+# Task
+{{ step.title }}
+
+# Source
+- `{{ package.source_note_path }}`
+{% if package.source_note_title %}- `{{ package.source_note_title }}`
+{% endif %}{% if step.external_task_key %}- `{{ step.external_task_key }}`
+{% endif %}
+
+# Cleaned Intent
+{{ step.step_intent or package.cleaned_intent }}
+
+# Implementation Instructions
+{{ step.step_intent or package.cleaned_intent }}
+
+# Guardrails
+{% if guardrail_items %}
+{% for item in guardrail_items %}- {{ item }}
+{% endfor %}
+{% else %}- None
+{% endif %}
+
+# Project Context
+- Project: `{{ package.project_key }}`
+{% if package.workspace_id %}- Workspace: `{{ package.workspace_id }}`
+{% endif %}{% if step.agent_id %}- Harness: `{{ step.agent_id }}`
+{% endif %}{% if step.base_ref %}- Base ref: `{{ step.base_ref }}`
+{% endif %}{% if step.depends_on_step_indices %}- Depends on: {{ step.depends_on_step_indices | join(", ") }}
+{% endif %}
+
+# Verification
+{% if verification_commands %}
+{% for command in verification_commands %}- `{{ command }}`
+{% endfor %}
+{% else %}- None
+{% endif %}
+{% if verification_notes %}
+{% for note in verification_notes %}- {{ note }}
+{% endfor %}
+{% endif %}
+
+# Completion Criteria
+- The step is implemented and reviewed.
+- The prompt remains reviewable without extra context.
+
+# Notes
+{% if package.cleanup_notes %}
+{% for note in package.cleanup_notes %}- {{ note }}
+{% endfor %}
+{% else %}- None
+{% endif %}

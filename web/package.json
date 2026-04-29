@@ -1,0 +1,37 @@
+{
+  "name": "kanban-prompt-companion-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.83.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.462.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.6.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^22.16.5",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.4.1",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "jsdom": "^26.1.0",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4",
+    "vite": "^5.4.19"
+  }
+}
